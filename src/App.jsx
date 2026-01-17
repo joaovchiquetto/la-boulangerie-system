@@ -1105,7 +1105,7 @@ const ClientsManager = () => {
   );
 };
 
-// 4. ORÇAMENTOS (MODIFICADO: Botão "Adicional" + Funcionalidades Anteriores)
+// 4. ORÇAMENTOS (ATUALIZADO: Verificação de Bloqueio de Agenda)
 const PaperInput = ({ className, ...props }) => (
     <input 
         {...props}
@@ -1127,6 +1127,10 @@ const BudgetManager = () => {
     const [clients, setClients] = useState([]);
     const [productsCatalog, setProductsCatalog] = useState([]);
     
+    // NOVO: Estado para armazenar os bloqueios da agenda
+    const [scheduleBlocks, setScheduleBlocks] = useState([]);
+    const [dateWarning, setDateWarning] = useState(null); // Aviso visual de bloqueio
+
     // FILTROS
     const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -1163,8 +1167,39 @@ const BudgetManager = () => {
         const unsubB = onSnapshot(q, (s) => setBudgets(s.docs.map(d => ({id: d.id, ...d.data()}))));
         const unsubC = onSnapshot(getColRef('clients'), (s) => setClients(s.docs.map(d => ({id: d.id, ...d.data()}))));
         const unsubP = onSnapshot(getColRef('products'), (s) => setProductsCatalog(s.docs.map(d => ({id: d.id, ...d.data()}))));
-        return () => { unsubB(); unsubC(); unsubP(); }
+        
+        // NOVO: Busca apenas os bloqueios da agenda
+        const qBlocks = query(collection(getFirestore(), 'custom_events'), where('type', '==', 'block'));
+        const unsubBlocks = onSnapshot(qBlocks, (s) => setScheduleBlocks(s.docs.map(d => d.data())));
+
+        return () => { unsubB(); unsubC(); unsubP(); unsubBlocks(); }
     }, []);
+
+    // NOVO: Função para verificar conflito de data
+    const handleDateChange = (newDate) => {
+        setDate(newDate);
+        setDateWarning(null); // Reseta o aviso
+
+        if (!newDate) return;
+
+        // Cria data segura para comparação (zerando horas)
+        const checkDate = new Date(newDate + 'T12:00:00'); 
+        
+        // Procura se cai em algum bloqueio
+        const conflict = scheduleBlocks.find(block => {
+            const start = new Date(block.date + 'T00:00:00');
+            // Se não tiver endDate, considera apenas o dia inicial
+            const end = block.endDate ? new Date(block.endDate + 'T23:59:59') : new Date(block.date + 'T23:59:59');
+            
+            return checkDate >= start && checkDate <= end;
+        });
+
+        if (conflict) {
+            const msg = `Atenção, agenda fechada para o dia! Evento: ${conflict.description}`;
+            alert(msg);
+            setDateWarning(msg); // Define msg para exibir vermelho embaixo do input
+        }
+    };
 
     const hasAnyDiscount = items.some(i => i.showDiscount || i.discount > 0);
     const globalPendingCount = budgets.filter(b => b.status === 'pending').length;
@@ -1258,6 +1293,7 @@ const BudgetManager = () => {
         setViewingBudgetID(null);
         setItems([{ category: '', desc: '', qty: 1, unitPrice: 0, discount: 0, showDiscount: false, total: 0, activeSearch: false, address: '' }]);
         setDate(''); 
+        setDateWarning(null);
         setSelectedClient('');
         setConfType('Casamento');
         setObservations('');
@@ -1269,7 +1305,20 @@ const BudgetManager = () => {
     const handleOpenBudget = (budget) => {
         setViewingBudgetID(budget.id);
         setSelectedClient(budget.clientData?.id || '');
+        // Ao abrir existente, usamos a mesma lógica para verificar se a data antiga agora está bloqueada
         setDate(budget.eventDate || '');
+        // Pequeno hack: chama a verificação sem setar a data (já setada acima) para mostrar o aviso se houver
+        if(budget.eventDate) {
+            const checkDate = new Date(budget.eventDate + 'T12:00:00'); 
+            const conflict = scheduleBlocks.find(block => {
+                const start = new Date(block.date + 'T00:00:00');
+                const end = block.endDate ? new Date(block.endDate + 'T23:59:59') : new Date(block.date + 'T23:59:59');
+                return checkDate >= start && checkDate <= end;
+            });
+            if(conflict) setDateWarning(`Atenção: Data original deste orçamento está bloqueada: ${conflict.description}`);
+            else setDateWarning(null);
+        }
+
         setConfType(budget.typeOfConfectionery || 'Casamento');
         setObservations(budget.observations || '');
         setImageFile(null);
@@ -1297,38 +1346,33 @@ const BudgetManager = () => {
         setView('form');
     };
 
-const handleImageChange = (e) => {
+    const handleImageChange = (e) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
-
-            // ⚠️ LIMITE DE SEGURANÇA: 500KB
-            // O Firestore tem um limite de 1MB por documento. 
-            // 500KB garante que sobra espaço para os textos do orçamento.
             if (file.size > 500 * 1024) {
                 alert("A imagem é muito grande! \nPara salvar sem o Storage, use uma imagem menor que 500KB.");
                 return;
             }
-
             const reader = new FileReader();
             reader.onloadend = () => {
-                // O resultado será algo como "data:image/jpeg;base64,..."
                 setAttachmentUrl(reader.result); 
-                setImageFile(null); // Não precisamos mais do arquivo bruto
+                setImageFile(null); 
             };
             reader.readAsDataURL(file);
         }
     };
 
-const handleSubmit = async () => {
+    const handleSubmit = async () => {
         if (!selectedClient || !date) return alert("Preencha cliente e data.");
         
+        if (dateWarning && !confirm(`ATENÇÃO: A data selecionada tem um bloqueio de agenda:\n"${dateWarning}"\n\nDeseja salvar mesmo assim?`)) {
+            return;
+        }
+
         setIsUploading(true);
 
         try {
-            // Prepara os dados do cliente
             const clientObj = clients.find(c => c.id === selectedClient);
-            
-            // Limpa itens vazios
             const cleanItems = items.map(i => ({ 
                 category: i.category, desc: i.desc, qty: i.qty, unitPrice: i.unitPrice, 
                 discount: i.discount || 0, val: i.total, address: i.address || '' 
@@ -1342,7 +1386,6 @@ const handleSubmit = async () => {
                 typeOfConfectionery: confType, 
                 observations: observations,
                 items: cleanItems,
-                // AQUI ESTÁ O TRUQUE: attachmentUrl agora já tem a imagem completa em texto
                 attachmentUrl: attachmentUrl, 
                 totalValue: grandTotalForm, 
                 updatedBy: creatorName, 
@@ -1350,11 +1393,9 @@ const handleSubmit = async () => {
             };
 
             if (viewingBudgetID) {
-                // Atualizar existente
                 await updateDoc(doc(getColRef('budgets'), viewingBudgetID), payload);
                 alert("Orçamento atualizado!");
             } else {
-                // Criar novo
                 await addDoc(getColRef('budgets'), { 
                     ...payload, status: 'pending', createdBy: creatorName, createdAt: serverTimestamp() 
                 });
@@ -1365,7 +1406,6 @@ const handleSubmit = async () => {
 
         } catch (error) {
             console.error("Erro ao salvar:", error);
-            // Se der erro de "quota" ou "size", é porque a imagem excedeu o limite do Firestore
             alert("Erro ao salvar: " + error.message);
         } finally {
             setIsUploading(false);
@@ -1375,7 +1415,6 @@ const handleSubmit = async () => {
     // --- MANIPULAÇÃO DE ITENS ---
     const addItem = () => setItems([...items, { category: '', desc: '', qty: 1, unitPrice: 0, discount: 0, showDiscount: false, total: 0, activeSearch: false, address: '' }]);
     
-    // NOVO: Adicionar Item "Adicional"
     const addAdditionalItem = () => {
         setItems([...items, { 
             category: 'Adicional', desc: '', qty: 1, unitPrice: 0, discount: 0, showDiscount: false, total: 0, activeSearch: false, address: '' 
@@ -1565,7 +1604,22 @@ const handleSubmit = async () => {
                             {/* DADOS DO CLIENTE */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8" style={{ pageBreakInside: 'avoid', breakInside: 'avoid' }}>
                                 <div className="flex flex-col"><label className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1">Cliente</label>{isExporting ? (<div className="border-b border-stone-300 py-1 font-serif text-lg text-stone-800">{clients.find(c => c.id === selectedClient)?.name || ''}</div>) : (<select className="bg-transparent border-b border-stone-300 py-1 outline-none focus:border-amber-600 font-serif text-lg w-full" value={selectedClient} onChange={e => setSelectedClient(e.target.value)}><option value="">Selecione um cliente...</option>{clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>)}</div>
-                                <div className="flex flex-col"><label className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1">Data do Evento</label>{isExporting ? (<div className="border-b border-stone-300 py-1 font-medium text-stone-800 font-serif text-lg">{formatDateForDisplay(date)}</div>) : (<PaperInput type="date" value={date} onChange={e => setDate(e.target.value)} />)}</div>
+                                <div className="flex flex-col">
+                                    <label className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1">Data do Evento</label>
+                                    {isExporting ? (
+                                        <div className="border-b border-stone-300 py-1 font-medium text-stone-800 font-serif text-lg">{formatDateForDisplay(date)}</div>
+                                    ) : (
+                                        <>
+                                            <PaperInput type="date" value={date} onChange={e => handleDateChange(e.target.value)} />
+                                            {/* AVISO VISUAL DE BLOQUEIO */}
+                                            {dateWarning && (
+                                                <div className="text-xs text-red-600 font-bold mt-1 bg-red-50 p-2 rounded border border-red-100 flex items-center gap-2 animate-pulse">
+                                                    <AlertTriangle size={14} /> {dateWarning}
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
+                                </div>
                             </div>
                             
                             {/* CATEGORIA */}
@@ -2413,7 +2467,7 @@ const ProductsManager = () => {
   );
 };
 
-// --- 6. DASHBOARD FINANCEIRO (ATUALIZADO: Relatório com Métodos de Pagamento) ---
+// --- 6. DASHBOARD FINANCEIRO (CORRIGIDO: Relatório de Pagamentos e Soma) ---
 const FinancialDashboard = () => {
     const { userProfile } = useContext(AuthContext);
     const [data, setData] = useState([]);
@@ -2428,7 +2482,7 @@ const FinancialDashboard = () => {
     const [showRevenueDetails, setShowRevenueDetails] = useState(false);
     const [showItemDetails, setShowItemDetails] = useState(false);
     
-    // --- NOVO: ESTADOS DO RELATÓRIO DE PAGAMENTOS ---
+    // --- ESTADOS DO RELATÓRIO DE PAGAMENTOS ---
     const [showReportModal, setShowReportModal] = useState(false);
     const [reportDates, setReportDates] = useState({ start: '', end: '' });
     const [reportResult, setReportResult] = useState(null);
@@ -2466,7 +2520,9 @@ const FinancialDashboard = () => {
                 let category = b.typeOfConfectionery || 'Eventos em Geral';
                 if (category === 'Primeira Eucaristia/Crisma') category = 'Primeira Eucaristia/ Crisma';
 
+                // GARANTIA DE NÚMEROS
                 const val = parseFloat(b.totalValue);
+                const entryVal = parseFloat(b.entryValue);
 
                 return {
                     id: d.id,
@@ -2483,7 +2539,7 @@ const FinancialDashboard = () => {
                     remainingPaymentDate: b.remainingPaymentDate || null, 
 
                     installments: b.installments || 1,
-                    entryValue: parseFloat(b.entryValue) || 0,
+                    entryValue: isNaN(entryVal) ? 0 : entryVal,
                     entryMethod: b.entryMethod || 'Pix',
                     items: b.items || [] 
                 };
@@ -2499,7 +2555,7 @@ const FinancialDashboard = () => {
         return () => { unsubBudgets(); unsubProducts(); };
     }, []);
 
-    // --- LÓGICA DO RELATÓRIO DE PAGAMENTOS (ATUALIZADA: Com Métodos) ---
+    // --- LÓGICA DO RELATÓRIO DE PAGAMENTOS (CORRIGIDA) ---
     const generatePaymentReport = () => {
         if (!reportDates.start || !reportDates.end) {
             alert("Selecione a data inicial e final.");
@@ -2514,10 +2570,19 @@ const FinancialDashboard = () => {
         // Estrutura: { '2026-01-10': { count: 0, total: 0, methods: { 'Pix': 100, 'Dinheiro': 50 } } }
         const groupedData = {};
 
-        const addData = (dateKey, amount, method) => {
+        // Função auxiliar robusta para somar
+        const addData = (dateKey, amountRaw, method) => {
+            const amount = parseFloat(amountRaw);
+            
+            // CORREÇÃO CRÍTICA: Só conta se o valor for válido e maior que zero.
+            // Isso evita que registros com valor 0 aumentem a QTD sem aumentar o Total.
+            if (isNaN(amount) || amount <= 0.001) return;
+
             if (!groupedData[dateKey]) {
                 groupedData[dateKey] = { count: 0, total: 0, methods: {} };
             }
+            
+            // Incrementa contadores
             groupedData[dateKey].count += 1;
             groupedData[dateKey].total += amount;
             
@@ -2526,7 +2591,7 @@ const FinancialDashboard = () => {
         };
 
         data.forEach(order => {
-            // 1. Verificar Pagamento Principal (Entrada ou Total)
+            // 1. Verificar Pagamento Principal (Entrada ou Total Integral)
             if (order.paymentDate) {
                 const [pYear, pMonth, pDay] = order.paymentDate.split('-').map(Number);
                 const pDate = new Date(pYear, pMonth - 1, pDay, 12, 0, 0);
@@ -2534,7 +2599,10 @@ const FinancialDashboard = () => {
                 if (pDate >= start && pDate <= end) {
                     const dateKey = order.paymentDate;
                     
-                    // Lógica: Se tem entrada, usa o método da entrada. Se é pagamento total, usa o método principal.
+                    // Lógica Prioritária:
+                    // Se houver valor de ENTRADA (> 0), soma a entrada.
+                    // Se NÃO houver entrada, mas o status for 'Pago', assume-se pagamento INTEGRAL.
+                    
                     if (order.entryValue > 0) {
                         addData(dateKey, order.entryValue, order.entryMethod);
                     } else if (order.paymentStatus === 'Pago') {
@@ -2543,15 +2611,17 @@ const FinancialDashboard = () => {
                 }
             }
 
-            // 2. Verificar Pagamento Restante
+            // 2. Verificar Pagamento Restante (Segunda parte do pagamento)
             if (order.remainingPaymentDate) {
                 const [rYear, rMonth, rDay] = order.remainingPaymentDate.split('-').map(Number);
                 const rDate = new Date(rYear, rMonth - 1, rDay, 12, 0, 0);
 
                 if (rDate >= start && rDate <= end) {
+                    // O valor restante é o Total menos a Entrada (se houver)
                     const remainingAmount = order.totalValue - (order.entryValue || 0);
+                    
                     if (remainingAmount > 0) {
-                        // O restante geralmente usa o método principal cadastrado
+                        // O restante geralmente usa o método principal cadastrado no pedido
                         addData(order.remainingPaymentDate, remainingAmount, order.paymentMethod);
                     }
                 }
@@ -2904,7 +2974,7 @@ const FinancialDashboard = () => {
                 </div>
             </div>
 
-            {/* MODAL RELATÓRIO DE PAGAMENTOS (ATUALIZADO COM MÉTODOS) */}
+            {/* MODAL RELATÓRIO DE PAGAMENTOS (CORRIGIDO: SOMA DOS VALORES) */}
             {showReportModal && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                     <Card className="w-full max-w-3xl shadow-2xl animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col">
