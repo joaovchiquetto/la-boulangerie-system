@@ -1105,7 +1105,7 @@ const ClientsManager = () => {
   );
 };
 
-// 4. ORÇAMENTOS (ATUALIZADO: Verificação de Bloqueio de Agenda)
+// 4. ORÇAMENTOS (ATUALIZADO: Múltiplas Imagens + PDF Correto)
 const PaperInput = ({ className, ...props }) => (
     <input 
         {...props}
@@ -1152,9 +1152,8 @@ const BudgetManager = () => {
     const [confType, setConfType] = useState('Casamento');
     const [observations, setObservations] = useState('');
     
-    // Estados para Imagem
-    const [imageFile, setImageFile] = useState(null); 
-    const [attachmentUrl, setAttachmentUrl] = useState(''); 
+    // --- ALTERADO: Estados para Múltiplas Imagens ---
+    const [attachments, setAttachments] = useState([]); // Lista de objetos { url: string }
     const [isUploading, setIsUploading] = useState(false);
 
     const [items, setItems] = useState([
@@ -1297,8 +1296,7 @@ const BudgetManager = () => {
         setSelectedClient('');
         setConfType('Casamento');
         setObservations('');
-        setImageFile(null); 
-        setAttachmentUrl('');
+        setAttachments([]); // Reseta a lista de anexos
         setView('form');
     };
 
@@ -1321,8 +1319,17 @@ const BudgetManager = () => {
 
         setConfType(budget.typeOfConfectionery || 'Casamento');
         setObservations(budget.observations || '');
-        setImageFile(null);
-        setAttachmentUrl(budget.attachmentUrl || ''); 
+        
+        // --- Lógica para carregar anexos (Compatibilidade com antigo e novo) ---
+        let loadedAttachments = [];
+        if (budget.attachments && Array.isArray(budget.attachments)) {
+            // Se já usa o novo sistema de lista
+            loadedAttachments = budget.attachments;
+        } else if (budget.attachmentUrl) {
+            // Se é um orçamento antigo com apenas uma foto
+            loadedAttachments = [{ url: budget.attachmentUrl }];
+        }
+        setAttachments(loadedAttachments);
         
         const loadedItems = (budget.items || []).map(i => {
             const safeQty = parseFloat(i.qty) || 1;
@@ -1346,20 +1353,39 @@ const BudgetManager = () => {
         setView('form');
     };
 
-    const handleImageChange = (e) => {
-        if (e.target.files && e.target.files[0]) {
-            const file = e.target.files[0];
-            if (file.size > 500 * 1024) {
-                alert("A imagem é muito grande! \nPara salvar sem o Storage, use uma imagem menor que 500KB.");
-                return;
+    // --- NOVA FUNÇÃO: Adicionar Múltiplas Imagens ---
+    const handleImageAdd = (e) => {
+        if (e.target.files && e.target.files.length > 0) {
+            const files = Array.from(e.target.files);
+            
+            // Verificação básica de tamanho para não travar o Firestore (ex: 500kb cada)
+            const oversized = files.filter(f => f.size > 500 * 1024);
+            if (oversized.length > 0) {
+                alert(`Atenção: ${oversized.length} imagem(ns) muito grande(s) (>500KB). Elas podem não salvar.`);
             }
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                setAttachmentUrl(reader.result); 
-                setImageFile(null); 
-            };
-            reader.readAsDataURL(file);
+
+            const promises = files.map(file => {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (event) => resolve(event.target.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(file);
+                });
+            });
+
+            Promise.all(promises)
+                .then(base64Images => {
+                    // Adiciona as novas imagens à lista existente
+                    const newAttachments = base64Images.map(url => ({ url }));
+                    setAttachments(prev => [...prev, ...newAttachments]);
+                })
+                .catch(err => alert("Erro ao processar imagens. Tente novamente."));
         }
+    };
+
+    // --- NOVA FUNÇÃO: Remover Imagem da Lista ---
+    const handleRemoveImage = (indexToRemove) => {
+        setAttachments(prev => prev.filter((_, idx) => idx !== indexToRemove));
     };
 
     const handleSubmit = async () => {
@@ -1380,13 +1406,19 @@ const BudgetManager = () => {
 
             const creatorName = userProfile?.username || userProfile?.email || 'Sistema';
 
+            // Prepara a lista de URLs para salvar
+            const attachmentList = attachments.map(a => ({ url: a.url }));
+            // Mantém a primeira imagem como capa para compatibilidade
+            const mainCover = attachmentList.length > 0 ? attachmentList[0].url : '';
+
             const payload = {
                 clientData: clientObj, 
                 eventDate: date, 
                 typeOfConfectionery: confType, 
                 observations: observations,
                 items: cleanItems,
-                attachmentUrl: attachmentUrl, 
+                attachments: attachmentList, // Salva a lista completa
+                attachmentUrl: mainCover,    // Salva a capa (compatibilidade)
                 totalValue: grandTotalForm, 
                 updatedBy: creatorName, 
                 updatedAt: serverTimestamp()
@@ -1412,7 +1444,7 @@ const BudgetManager = () => {
         }
     };
 
-    // --- MANIPULAÇÃO DE ITENS ---
+    // --- MANIPULAÇÃO DE ITENS (MANTIDA ORIGINAL) ---
     const addItem = () => setItems([...items, { category: '', desc: '', qty: 1, unitPrice: 0, discount: 0, showDiscount: false, total: 0, activeSearch: false, address: '' }]);
     
     const addAdditionalItem = () => {
@@ -1736,34 +1768,58 @@ const BudgetManager = () => {
                                 </div>
                             </div>
 
-                            {/* --- ÁREA DE UPLOAD DE FOTO --- */}
-                            <div className="mt-6 mb-4 break-inside-avoid" data-html2canvas-ignore="true">
+                            {/* --- ÁREA DE UPLOAD DE FOTOS MÚLTIPLAS (CORRIGIDO PARA PDF) --- */}
+                            <div className="mt-6 mb-4 break-inside-avoid">
                                 <label className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-2 block flex items-center gap-2">
-                                    <Tag size={12} /> Anexo Interno (Foto/Esboço)
+                                    <Tag size={12} /> Anexos (Fotos de referência)
                                 </label>
-                                <div className="p-4 border-2 border-dashed border-stone-200 rounded-xl bg-stone-50 hover:bg-white hover:border-amber-300 transition-colors">
+                                <div className={`p-4 border-2 border-dashed border-stone-200 rounded-xl bg-stone-50 transition-colors ${!isExporting ? 'hover:bg-white hover:border-amber-300' : ''}`}>
+                                    
+                                    {/* Input de arquivo múltiplo - Escondido no PDF */}
                                     {!isExporting && (
-                                        <input 
-                                            type="file" 
-                                            accept="image/*"
-                                            onChange={handleImageChange}
-                                            className="block w-full text-sm text-stone-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100 mb-4"
-                                        />
+                                        <div className="mb-4">
+                                            <input 
+                                                type="file" 
+                                                accept="image/*"
+                                                multiple
+                                                onChange={handleImageAdd}
+                                                className="block w-full text-sm text-stone-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100"
+                                            />
+                                            <p className="text-[10px] text-stone-400 mt-1 pl-2">Você pode selecionar várias fotos de uma vez.</p>
+                                        </div>
                                     )}
                                     
-                                    {(imageFile || attachmentUrl) ? (
-                                        <div className="relative w-full max-w-md mx-auto">
-                                            <img 
-                                                src={imageFile ? URL.createObjectURL(imageFile) : attachmentUrl} 
-                                                alt="Anexo do Orçamento" 
-                                                className="rounded-lg shadow-sm max-h-[300px] object-contain mx-auto border border-stone-200"
-                                            />
-                                            <p className="text-center text-xs text-stone-400 mt-2 italic">
-                                                * Visível apenas no sistema. Não sairá no PDF.
-                                            </p>
+                                    {attachments.length > 0 ? (
+                                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                            {attachments.map((file, index) => (
+                                                <div key={index} className="relative group border border-stone-200 rounded-lg overflow-hidden bg-white">
+                                                    <img 
+                                                        src={file.url} 
+                                                        alt={`Anexo ${index + 1}`} 
+                                                        className="w-full h-32 object-contain"
+                                                    />
+                                                    {/* Botão de Remover - Escondido no PDF */}
+                                                    {!isExporting && (
+                                                        <button 
+                                                            onClick={() => handleRemoveImage(index)}
+                                                            className="absolute top-1 right-1 bg-white rounded-full p-1 text-red-500 shadow hover:bg-red-50 transition-colors opacity-80 hover:opacity-100"
+                                                            title="Remover foto"
+                                                        >
+                                                            <XCircle size={16} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            ))}
                                         </div>
                                     ) : (
                                         <p className="text-center text-stone-400 text-xs italic py-2">Nenhuma imagem anexada.</p>
+                                    )}
+                                    
+                                    {/* Mensagem informativa apenas na tela */}
+                                    {!isExporting && attachments.length > 0 && (
+                                        <p className="text-center text-xs text-stone-400 mt-4 italic">
+                                            * As imagens acima sairão no final do PDF.
+                                        </p>
                                     )}
                                 </div>
                             </div>
