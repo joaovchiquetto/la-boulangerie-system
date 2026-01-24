@@ -453,10 +453,16 @@ const Dashboard = () => {
 
   const saveRow = async (id) => {
       try {
+          // LÓGICA: Se a data do pagamento restante é preenchida, muda automaticamente para "Pago"
+          let finalPaymentStatus = tempRowData.paymentStatus;
+          if (tempRowData.remainingPaymentDate) {
+              finalPaymentStatus = 'Pago';
+          }
+
           await updateDoc(doc(getColRef('budgets'), id), {
               orderStatus: tempRowData.orderStatus,
               paymentMethod: tempRowData.paymentMethod,
-              paymentStatus: tempRowData.paymentStatus,
+              paymentStatus: finalPaymentStatus,
               paymentDate: tempRowData.paymentDate || null,
               remainingPaymentDate: tempRowData.remainingPaymentDate || null, 
               installments: tempRowData.installments,
@@ -698,12 +704,12 @@ const Dashboard = () => {
                                             <div className="flex flex-col items-center">
                                                 <span className={`px-3 py-1 rounded-lg text-xs font-bold uppercase border inline-block w-full ${getPaymentStatusStyle(evt.paymentStatus)}`}>{evt.paymentStatus}</span>
                                                 {evt.paymentStatus !== 'Pendente' && evt.paymentDate && (
-                                                    <div className="text-[10px] text-stone-500 mt-1 font-medium bg-stone-100 px-2 rounded-full border border-stone-200 whitespace-nowrap">{evt.paymentStatus === 'Parcial' ? 'Entrada: ' : 'Pago em: '} {formatPaymentDate(evt.paymentDate)}</div>
+                                                    <div className="text-[10px] text-stone-500 mt-1 font-medium bg-stone-100 px-2 rounded-full border border-stone-200 whitespace-nowrap">{evt.remainingPaymentDate ? 'Entrada: ' : (evt.paymentStatus === 'Parcial' ? 'Entrada: ' : 'Pago em: ')} {formatPaymentDate(evt.paymentDate)}</div>
                                                 )}
-                                                {evt.paymentStatus === 'Parcial' && evt.remainingPaymentDate && (
+                                                {evt.remainingPaymentDate && (
                                                      <div className="text-[10px] text-stone-500 mt-1 font-medium bg-stone-100 px-2 rounded-full border border-stone-200 whitespace-nowrap">Restante: {formatPaymentDate(evt.remainingPaymentDate)}</div>
                                                 )}
-                                                {evt.paymentStatus === 'Parcial' && evt.entryValue > 0 && (
+                                                {evt.entryValue > 0 && (
                                                     <div className="text-[10px] text-orange-600 font-bold mt-1 text-center leading-tight">Entrada: R$ {evt.entryValue.toFixed(2)}<br/><span className="opacity-75">via {evt.entryMethod || 'Pix'}</span></div>
                                                 )}
                                             </div>
@@ -921,7 +927,7 @@ const ClientsManager = () => {
   // Armazena o nome original ao abrir edição para buscar nos orçamentos depois
   const [originalName, setOriginalName] = useState(''); 
 
-  const [formData, setFormData] = useState({ name: '', phone: '', email: '', address: '' });
+  const [formData, setFormData] = useState({ name: '', phone: '', email: '', address: '', cpf: '' });
 
   useEffect(() => {
     const q = query(getColRef('clients'));
@@ -934,7 +940,7 @@ const ClientsManager = () => {
   const openNewClientModal = () => {
       setEditingId(null);
       setOriginalName('');
-      setFormData({ name: '', phone: '', email: '', address: '' });
+      setFormData({ name: '', phone: '', email: '', address: '', cpf: '' });
       setIsModalOpen(true);
   };
 
@@ -945,7 +951,8 @@ const ClientsManager = () => {
           name: client.name,
           phone: client.phone || '',
           email: client.email || '',
-          address: client.address || ''
+          address: client.address || '',
+          cpf: client.cpf || ''
       });
       setIsModalOpen(true);
   };
@@ -966,6 +973,7 @@ const ClientsManager = () => {
           phone: formData.phone,
           email: formData.email,
           address: formData.address,
+          cpf: formData.cpf,
           updatedBy: userProfile?.email || 'Sistema',
           updatedAt: serverTimestamp()
       };
@@ -1050,6 +1058,7 @@ const ClientsManager = () => {
                   <th className="p-4 text-stone-600 font-semibold text-sm">Nome</th>
                   <th className="p-4 text-stone-600 font-semibold text-sm">Telefone</th>
                   <th className="p-4 text-stone-600 font-semibold text-sm">Email</th>
+                  <th className="p-4 text-stone-600 font-semibold text-sm">CPF</th>
                   <th className="p-4 text-stone-600 font-semibold text-sm w-32 text-center">Ações</th>
                 </tr>
               </thead>
@@ -1059,6 +1068,7 @@ const ClientsManager = () => {
                     <td className="p-4 font-bold text-stone-800">{client.name}</td>
                     <td className="p-4 text-stone-600">{client.phone || '-'}</td>
                     <td className="p-4 text-stone-600">{client.email || '-'}</td>
+                    <td className="p-4 text-stone-600">{client.cpf || '-'}</td>
                     <td className="p-4 text-center">
                       <div className="flex justify-center gap-2">
                           <button onClick={() => openEditModal(client)} className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"><Edit2 size={18} /></button>
@@ -1086,6 +1096,7 @@ const ClientsManager = () => {
               <Input label="Nome Completo *" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} required placeholder="Ex: Maria da Silva" />
               <Input label="Telefone / WhatsApp" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} placeholder="(00) 00000-0000" />
               <Input label="Email" type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} placeholder="cliente@email.com" />
+              <Input label="CPF" value={formData.cpf} onChange={e => setFormData({...formData, cpf: e.target.value})} placeholder="000.000.000-00" />
               <div className="flex flex-col gap-1">
                   <label className="text-sm font-semibold text-stone-600">Endereço</label>
                   <textarea className="w-full px-4 py-2 rounded-lg border border-stone-300 focus:ring-2 focus:ring-amber-500 outline-none text-sm" rows="3" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} placeholder="Rua, Número, Bairro..." />
@@ -2298,9 +2309,26 @@ const ProductsManager = () => {
   const handleAddCostEntry = async (e) => {
       e.preventDefault();
       if (!costForm.startDate || costForm.cost <= 0) { alert("Preencha Data Inicial e Custo."); return; }
-      const newEntry = { id: Date.now().toString(), startDate: costForm.startDate, endDate: null, cost: costForm.cost, addedAt: new Date().toISOString(), addedBy: userProfile?.email || 'Sistema' };
+      
       try {
-          const updatedHistory = [...(selectedProductForCost.costHistory || []), newEntry];
+          const updatedHistory = [...(selectedProductForCost.costHistory || [])];
+          
+          // LÓGICA: Encontrar o custo anterior "vigente" (sem endDate) e marcá-lo como inativo
+          const vigoroIndex = updatedHistory.findIndex(h => !h.endDate);
+          if (vigoroIndex !== -1) {
+              // Calcula a data anterior à nova data inicial
+              const [year, month, day] = costForm.startDate.split('-').map(Number);
+              const previousDate = new Date(year, month - 1, day);
+              previousDate.setDate(previousDate.getDate() - 1);
+              const previousDateStr = previousDate.toISOString().split('T')[0]; // Formato YYYY-MM-DD
+              
+              updatedHistory[vigoroIndex] = { ...updatedHistory[vigoroIndex], endDate: previousDateStr };
+          }
+          
+          // Adiciona o novo custo
+          const newEntry = { id: Date.now().toString(), startDate: costForm.startDate, endDate: null, cost: costForm.cost, addedAt: new Date().toISOString(), addedBy: userProfile?.email || 'Sistema' };
+          updatedHistory.push(newEntry);
+          
           await updateDoc(doc(getColRef('products'), selectedProductForCost.id), { costHistory: updatedHistory });
           setSelectedProductForCost({ ...selectedProductForCost, costHistory: updatedHistory });
           setCostForm({ startDate: '', cost: 0, costDisplay: '' });
@@ -2443,7 +2471,7 @@ const ProductsManager = () => {
                                   {[...selectedProductForCost.costHistory].sort((a, b) => (a.startDate < b.startDate ? 1 : -1)).map((entry, idx) => (
                                       <tr key={idx} className="hover:bg-stone-50">
                                           <td className="p-2 text-stone-700 font-mono text-xs">{formatDateDisplay(entry.startDate)}</td>
-                                          <td className="p-2 text-stone-500 font-mono text-xs">{entry.endDate ? formatDateDisplay(entry.endDate) : (closingIndex === idx ? (<div className="flex items-center gap-1 animate-in fade-in"><input type="date" className="w-24 text-[10px] p-1 border border-stone-300 rounded outline-none" value={closingDate} onChange={e => setClosingDate(e.target.value)} /><button onClick={() => handleSaveEndDate(idx)} className="text-green-600 hover:bg-green-100 p-1 rounded"><CheckCircle size={14}/></button><button onClick={() => setClosingIndex(null)} className="text-red-400 hover:bg-red-50 p-1 rounded"><X size={14}/></button></div>) : (<div className="flex items-center gap-2"><span className="text-emerald-600 font-bold text-[10px] bg-emerald-50 px-1 rounded border border-emerald-100 cursor-default">VIGENTE</span><button onClick={() => { setClosingIndex(idx); setClosingDate(''); }} className="text-stone-400 hover:text-amber-600 hover:bg-amber-50 p-1 rounded transition-colors"><Calendar size={14} /></button></div>))}</td>
+                                          <td className="p-2 text-stone-500 font-mono text-xs">{entry.endDate ? formatDateDisplay(entry.endDate) : (closingIndex === idx ? (<div className="flex items-center gap-1 animate-in fade-in"><input type="date" className="w-24 text-[10px] p-1 border border-stone-300 rounded outline-none" value={closingDate} onChange={e => setClosingDate(e.target.value)} /><button onClick={() => handleSaveEndDate(idx)} className="text-green-600 hover:bg-green-100 p-1 rounded"><CheckCircle size={14}/></button><button onClick={() => setClosingIndex(null)} className="text-red-400 hover:bg-red-50 p-1 rounded"><X size={14}/></button></div>) : (<div className="flex items-center gap-2">{entry.endDate ? (<span className="text-stone-500 font-bold text-[10px] bg-stone-100 px-1 rounded border border-stone-200 cursor-default">INATIVO</span>) : (<span className="text-emerald-600 font-bold text-[10px] bg-emerald-50 px-1 rounded border border-emerald-100 cursor-default">VIGENTE</span>)}<button onClick={() => { setClosingIndex(idx); setClosingDate(''); }} className="text-stone-400 hover:text-amber-600 hover:bg-amber-50 p-1 rounded transition-colors"><Calendar size={14} /></button></div>))}</td>
                                           <td className="p-2 text-right font-bold text-stone-800">{entry.cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
                                           <td className="p-2 text-right">{closingIndex !== idx && (<button onClick={() => handleDeleteCostEntry(idx)} className="text-stone-300 hover:text-red-500"><X size={14}/></button>)}</td>
                                       </tr>
@@ -2523,7 +2551,371 @@ const ProductsManager = () => {
   );
 };
 
-// --- 6. DASHBOARD FINANCEIRO (CORRIGIDO: Relatório de Pagamentos e Soma) ---
+// --- 6. LANÇAMENTOS (Despesas e Matérias-Primas) ---
+const LaunchesManager = () => {
+  const { userProfile } = useContext(AuthContext);
+  const [launches, setLaunches] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Função para formatar valores em moeda
+  const formatCurrency = (value) => {
+    if (!value) return '';
+    const num = parseFloat(value.toString().replace(/[^\d,.-]/g, '').replace(',', '.'));
+    if (isNaN(num)) return '';
+    return num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  // Função para remover formatação de moeda
+  const unformatCurrency = (value) => {
+    if (!value) return '';
+    return value.toString().replace(/[^\d,.-]/g, '').replace(',', '.');
+  };
+  
+  // Estado para rastrear o valor sendo editado no input de moeda
+  const [unitValueDisplay, setUnitValueDisplay] = useState('');
+  
+  // Filtros
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  
+  const months = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+  const years = [2025, 2026, 2027];
+  const launchTypes = ["Nota Fiscal", "Movimentação Financeira", "Pagamentos", "Outros"];
+
+  const [formData, setFormData] = useState({
+    date: '',
+    type: '',
+    supplier: '',
+    description: '',
+    quantity: '',
+    unitValue: '',
+    totalValue: '',
+    observations: ''
+  });
+
+  // Carrega lançamentos
+  useEffect(() => {
+    const q = query(getColRef('launches'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setLaunches(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const openNewLaunchModal = () => {
+    setEditingId(null);
+    setFormData({ date: '', type: '', supplier: '', description: '', quantity: '', unitValue: '', totalValue: '', observations: '' });
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (launch) => {
+    setEditingId(launch.id);
+    setFormData({
+      date: launch.date || '',
+      type: launch.type || '',
+      supplier: launch.supplier || '',
+      description: launch.description || '',
+      quantity: launch.quantity || '',
+      unitValue: launch.unitValue || '',
+      totalValue: launch.totalValue || '',
+      observations: launch.observations || ''
+    });
+    setUnitValueDisplay(launch.unitValue ? `R$ ${formatCurrency(launch.unitValue)}` : '');
+    setIsModalOpen(true);
+  };
+
+  const handleSaveLaunch = async (e) => {
+    e.preventDefault();
+    setIsSaving(true);
+
+    try {
+      const launchPayload = {
+        date: formData.date,
+        type: formData.type,
+        supplier: formData.supplier,
+        description: formData.description,
+        quantity: formData.quantity ? parseFloat(formData.quantity) : 0,
+        unitValue: formData.unitValue ? parseFloat(formData.unitValue) : 0,
+        totalValue: formData.totalValue ? parseFloat(formData.totalValue) : 0,
+        observations: formData.observations,
+        updatedBy: userProfile?.email || 'Sistema',
+        updatedAt: serverTimestamp()
+      };
+
+      if (editingId) {
+        await updateDoc(doc(getColRef('launches'), editingId), launchPayload);
+        alert("Lançamento atualizado com sucesso!");
+      } else {
+        await addDoc(getColRef('launches'), { ...launchPayload, createdAt: serverTimestamp() });
+        alert("Lançamento cadastrado com sucesso!");
+      }
+      setIsModalOpen(false);
+      setUnitValueDisplay('');
+      setFormData({
+        date: '',
+        type: '',
+        supplier: '',
+        description: '',
+        quantity: '',
+        unitValue: '',
+        totalValue: '',
+        observations: ''
+      });
+
+    } catch (error) {
+      console.error("Erro ao salvar lançamento:", error);
+      alert("Erro ao salvar dados.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (confirm("Tem certeza que deseja excluir este lançamento?")) {
+      await deleteDoc(doc(getColRef('launches'), id));
+    }
+  };
+
+  // Filtra lançamentos por período
+  const filteredLaunches = launches.filter(l => {
+    const launchDate = new Date(l.date);
+    const yearMatch = launchDate.getFullYear() === parseInt(selectedYear);
+    const monthMatch = launchDate.getMonth() === parseInt(selectedMonth);
+    const searchMatch = 
+      (l.supplier && l.supplier.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (l.description && l.description.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (l.type && l.type.toLowerCase().includes(searchTerm.toLowerCase()));
+    
+    return yearMatch && monthMatch && searchMatch;
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+        <h2 className="text-2xl font-serif font-bold text-stone-800">Lançamentos</h2>
+        
+        <div className="flex gap-2 w-full md:w-auto flex-wrap items-center">
+          <select 
+            value={selectedMonth} 
+            onChange={e => setSelectedMonth(parseInt(e.target.value))}
+            className="px-3 py-2 rounded-lg border border-stone-300 focus:ring-2 focus:ring-amber-500 outline-none text-sm"
+          >
+            {months.map((m, i) => <option key={i} value={i}>{m}</option>)}
+          </select>
+          
+          <select 
+            value={selectedYear} 
+            onChange={e => setSelectedYear(parseInt(e.target.value))}
+            className="px-3 py-2 rounded-lg border border-stone-300 focus:ring-2 focus:ring-amber-500 outline-none text-sm"
+          >
+            {years.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+
+          <div className="relative flex-1 md:w-64">
+            <Search className="absolute left-3 top-2.5 text-stone-400" size={18} />
+            <input 
+              type="text" 
+              placeholder="Buscar..." 
+              className="w-full pl-10 pr-4 py-2 rounded-lg border border-stone-300 focus:ring-2 focus:ring-amber-500 outline-none text-sm"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+            />
+          </div>
+
+          <Button onClick={openNewLaunchModal}><Plus size={18} /> Novo Lançamento</Button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl shadow border border-stone-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left min-w-[900px]">
+            <thead className="bg-stone-50 border-b border-stone-200">
+              <tr>
+                <th className="p-4 text-stone-600 font-semibold text-sm">Data</th>
+                <th className="p-4 text-stone-600 font-semibold text-sm">Tipo</th>
+                <th className="p-4 text-stone-600 font-semibold text-sm">Fornecedor</th>
+                <th className="p-4 text-stone-600 font-semibold text-sm">Descrição</th>
+                <th className="p-4 text-stone-600 font-semibold text-sm text-right">Quantidade</th>
+                <th className="p-4 text-stone-600 font-semibold text-sm text-right">Valor Unit.</th>
+                <th className="p-4 text-stone-600 font-semibold text-sm text-right">Valor Total</th>
+                <th className="p-4 text-stone-600 font-semibold text-sm">Observações</th>
+                <th className="p-4 text-stone-600 font-semibold text-sm w-32 text-center">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100">
+              {filteredLaunches.map(launch => (
+                <tr key={launch.id} className="hover:bg-amber-50/30">
+                  <td className="p-4 font-mono text-sm text-stone-700">{launch.date ? new Date(launch.date).toLocaleDateString('pt-BR') : '-'}</td>
+                  <td className="p-4 text-sm text-stone-600">{launch.type || '-'}</td>
+                  <td className="p-4 font-bold text-stone-800">{launch.supplier || '-'}</td>
+                  <td className="p-4 text-sm text-stone-600">{launch.description || '-'}</td>
+                  <td className="p-4 text-sm text-right text-stone-600">{launch.quantity || '-'}</td>
+                  <td className="p-4 text-sm text-right font-bold text-stone-700">{launch.unitValue ? `R$ ${parseFloat(launch.unitValue).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}</td>
+                  <td className="p-4 text-sm text-right font-bold text-amber-600">{launch.totalValue ? `R$ ${parseFloat(launch.totalValue).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}</td>
+                  <td className="p-4 text-sm text-stone-600 max-w-xs truncate">{launch.observations || '-'}</td>
+                  <td className="p-4 text-center">
+                    <div className="flex justify-center gap-2">
+                      <button onClick={() => openEditModal(launch)} className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"><Edit2 size={18} /></button>
+                      <button onClick={() => handleDelete(launch.id)} className="p-2 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={18} /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {filteredLaunches.length === 0 && <div className="p-8 text-center text-stone-400">Nenhum lançamento encontrado.</div>}
+      </div>
+
+      {/* MODAL */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-2xl shadow-2xl animate-in fade-in zoom-in duration-200">
+            <div className="flex justify-between items-center mb-6 border-b pb-2">
+              <h3 className="text-xl font-serif font-bold text-stone-800">{editingId ? 'Editar Lançamento' : 'Novo Lançamento'}</h3>
+              <button onClick={() => {
+                setIsModalOpen(false);
+                setUnitValueDisplay('');
+                setFormData({
+                  date: '',
+                  type: '',
+                  supplier: '',
+                  description: '',
+                  quantity: '',
+                  unitValue: '',
+                  totalValue: '',
+                  observations: ''
+                });
+              }} className="text-stone-400 hover:text-stone-600"><X size={24}/></button>
+            </div>
+            
+            <form onSubmit={handleSaveLaunch} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-semibold text-stone-600">Data</label>
+                  <input 
+                    type="date" 
+                    value={formData.date} 
+                    onChange={e => setFormData({...formData, date: e.target.value})}
+                    className="px-4 py-2 rounded-lg border border-stone-300 focus:ring-2 focus:ring-amber-500 outline-none text-sm"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-semibold text-stone-600">Tipo de Lançamento</label>
+                  <select 
+                    value={formData.type}
+                    onChange={e => setFormData({...formData, type: e.target.value})}
+                    className="px-4 py-2 rounded-lg border border-stone-300 focus:ring-2 focus:ring-amber-500 outline-none text-sm"
+                  >
+                    <option value="">Selecione um tipo...</option>
+                    {launchTypes.map(type => <option key={type} value={type}>{type}</option>)}
+                  </select>
+                </div>
+
+                <Input 
+                  label="Fornecedor" 
+                  value={formData.supplier} 
+                  onChange={e => setFormData({...formData, supplier: e.target.value})}
+                  placeholder="Nome do fornecedor"
+                />
+
+                <Input 
+                  label="Descrição da Matéria" 
+                  value={formData.description} 
+                  onChange={e => setFormData({...formData, description: e.target.value})}
+                  placeholder="Descrição do produto"
+                />
+
+                <Input 
+                  label="Quantidade" 
+                  type="number"
+                  step="0.01"
+                  value={formData.quantity} 
+                  onChange={e => {
+                    const quantity = e.target.value;
+                    const unitValue = formData.unitValue;
+                    const totalValue = quantity && unitValue ? (parseFloat(quantity) * parseFloat(unitValue)).toFixed(2) : '';
+                    setFormData({...formData, quantity, totalValue});
+                  }}
+                  placeholder="0"
+                />
+
+                <Input 
+                  label="Valor Unitário" 
+                  type="text"
+                  value={unitValueDisplay} 
+                  onChange={e => {
+                    const input = e.target.value;
+                    setUnitValueDisplay(input);
+                    
+                    const unitValue = input.replace(/[^\d.,]/g, '').replace(',', '.');
+                    const quantity = formData.quantity;
+                    const totalValue = quantity && unitValue ? (parseFloat(quantity) * parseFloat(unitValue)).toFixed(2) : '';
+                    setFormData({...formData, unitValue, totalValue});
+                  }}
+                  onBlur={() => {
+                    if (unitValueDisplay) {
+                      const formatted = formatCurrency(unitValueDisplay);
+                      setUnitValueDisplay(`R$ ${formatted}`);
+                    }
+                  }}
+                  placeholder="R$ 0,00"
+                />
+
+                <Input 
+                  label="Valor Total" 
+                  type="text"
+                  value={formData.totalValue ? `R$ ${formatCurrency(formData.totalValue)}` : ''}
+                  disabled
+                  placeholder="R$ 0,00"
+                  className="col-span-2 bg-stone-100"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-sm font-semibold text-stone-600">Observações</label>
+                <textarea 
+                  className="w-full px-4 py-2 rounded-lg border border-stone-300 focus:ring-2 focus:ring-amber-500 outline-none text-sm" 
+                  rows="3" 
+                  value={formData.observations} 
+                  onChange={e => setFormData({...formData, observations: e.target.value})}
+                  placeholder="Digite observações adicionais..."
+                />
+              </div>
+              
+              <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-stone-100">
+                <Button variant="secondary" onClick={(e) => { 
+                  e.preventDefault(); 
+                  setIsModalOpen(false);
+                  setUnitValueDisplay('');
+                  setFormData({
+                    date: '',
+                    type: '',
+                    supplier: '',
+                    description: '',
+                    quantity: '',
+                    unitValue: '',
+                    totalValue: '',
+                    observations: ''
+                  });
+                }} disabled={isSaving}>Cancelar</Button>
+                <Button type="submit" disabled={isSaving}>
+                  {isSaving ? 'Salvando...' : 'Salvar Lançamento'}
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// --- 7. DASHBOARD FINANCEIRO (CORRIGIDO: Relatório de Pagamentos e Soma) ---
 const FinancialDashboard = () => {
     const { userProfile } = useContext(AuthContext);
     const [data, setData] = useState([]);
@@ -2611,17 +3003,17 @@ const FinancialDashboard = () => {
         return () => { unsubBudgets(); unsubProducts(); };
     }, []);
 
-    // --- LÓGICA DO RELATÓRIO DE PAGAMENTOS (CORRIGIDA) ---
+// --- LÓGICA DO RELATÓRIO DE PAGAMENTOS (CORRIGIDA) ---
     const generatePaymentReport = () => {
         if (!reportDates.start || !reportDates.end) {
             alert("Selecione a data inicial e final.");
             return;
         }
 
-        const start = new Date(reportDates.start);
-        const end = new Date(reportDates.end);
-        start.setHours(0,0,0,0);
-        end.setHours(23,59,59,999);
+        // Normalizamos as datas de busca para comparação de strings YYYY-MM-DD
+        // Isso evita problemas com fusos horários de objetos Date
+        const startDateStr = reportDates.start;
+        const endDateStr = reportDates.end;
 
         // Estrutura: { '2026-01-10': { count: 0, total: 0, methods: { 'Pix': 100, 'Dinheiro': 50 } } }
         const groupedData = {};
@@ -2630,8 +3022,7 @@ const FinancialDashboard = () => {
         const addData = (dateKey, amountRaw, method) => {
             const amount = parseFloat(amountRaw);
             
-            // CORREÇÃO CRÍTICA: Só conta se o valor for válido e maior que zero.
-            // Isso evita que registros com valor 0 aumentem a QTD sem aumentar o Total.
+            // Só conta se o valor for válido e maior que zero
             if (isNaN(amount) || amount <= 0.001) return;
 
             if (!groupedData[dateKey]) {
@@ -2648,17 +3039,13 @@ const FinancialDashboard = () => {
 
         data.forEach(order => {
             // 1. Verificar Pagamento Principal (Entrada ou Total Integral)
+            // Comparamos as strings de data diretamente (YYYY-MM-DD)
             if (order.paymentDate) {
-                const [pYear, pMonth, pDay] = order.paymentDate.split('-').map(Number);
-                const pDate = new Date(pYear, pMonth - 1, pDay, 12, 0, 0);
-
-                if (pDate >= start && pDate <= end) {
+                if (order.paymentDate >= startDateStr && order.paymentDate <= endDateStr) {
                     const dateKey = order.paymentDate;
                     
-                    // Lógica Prioritária:
                     // Se houver valor de ENTRADA (> 0), soma a entrada.
                     // Se NÃO houver entrada, mas o status for 'Pago', assume-se pagamento INTEGRAL.
-                    
                     if (order.entryValue > 0) {
                         addData(dateKey, order.entryValue, order.entryMethod);
                     } else if (order.paymentStatus === 'Pago') {
@@ -2669,15 +3056,12 @@ const FinancialDashboard = () => {
 
             // 2. Verificar Pagamento Restante (Segunda parte do pagamento)
             if (order.remainingPaymentDate) {
-                const [rYear, rMonth, rDay] = order.remainingPaymentDate.split('-').map(Number);
-                const rDate = new Date(rYear, rMonth - 1, rDay, 12, 0, 0);
-
-                if (rDate >= start && rDate <= end) {
+                if (order.remainingPaymentDate >= startDateStr && order.remainingPaymentDate <= endDateStr) {
                     // O valor restante é o Total menos a Entrada (se houver)
                     const remainingAmount = order.totalValue - (order.entryValue || 0);
                     
                     if (remainingAmount > 0) {
-                        // O restante geralmente usa o método principal cadastrado no pedido
+                        // O restante usa o método principal cadastrado no pedido
                         addData(order.remainingPaymentDate, remainingAmount, order.paymentMethod);
                     }
                 }
@@ -2687,6 +3071,10 @@ const FinancialDashboard = () => {
         const result = Object.entries(groupedData)
             .map(([date, info]) => ({ date, ...info }))
             .sort((a, b) => a.date.localeCompare(b.date));
+
+        if (result.length === 0) {
+            alert("Nenhum registro encontrado para este período.");
+        }
 
         setReportResult(result);
     };
@@ -3195,19 +3583,12 @@ const ResultDashboard = () => {
     const [budgets, setBudgets] = useState([]);
     const [products, setProducts] = useState([]);
     const [manualRecords, setManualRecords] = useState([]); // Registros manuais (aluguel, etc)
+    const [launches, setLaunches] = useState([]); // Lançamentos (novos custos)
 
     // Estado Local de Edição
     const [isEditing, setIsEditing] = useState(false);
-    const [isOpCostsOpen, setIsOpCostsOpen] = useState(false); // Acordeão
     const [editData, setEditData] = useState({
-        otherRevenues: 0,
-        op_rent: 0,
-        op_materials: 0,
-        op_fees: 0,
-        op_services: 0,
-        payroll: 0,
-        taxes: 0,
-        investments: 0
+        otherRevenues: 0
     });
 
     const years = [2025, 2026, 2027];
@@ -3253,7 +3634,13 @@ const ResultDashboard = () => {
             setManualRecords(loaded);
         });
 
-        return () => { unsubBudgets(); unsubProducts(); unsubRecords(); };
+        // Busca Lançamentos (Novos custos)
+        const qLaunches = query(getColRef('launches'));
+        const unsubLaunches = onSnapshot(qLaunches, (snap) => {
+            setLaunches(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+
+        return () => { unsubBudgets(); unsubProducts(); unsubRecords(); unsubLaunches(); };
     }, []);
 
     // Atualiza o formulário de edição quando muda o mês ou os dados carregados
@@ -3263,22 +3650,42 @@ const ResultDashboard = () => {
             const record = manualRecords.find(r => r.id === docId);
             if (record) {
                 setEditData({
-                    otherRevenues: record.otherRevenues || 0,
-                    op_rent: record.op_rent || 0,
-                    op_materials: record.op_materials || 0,
-                    op_fees: record.op_fees || 0,
-                    op_services: record.op_services || 0,
-                    payroll: record.payroll || 0,
-                    taxes: record.taxes || 0,
-                    investments: record.investments || 0
+                    otherRevenues: record.otherRevenues || 0
                 });
             } else {
                 // Reseta se não houver registro
-                setEditData({ otherRevenues: 0, op_rent: 0, op_materials: 0, op_fees: 0, op_services: 0, payroll: 0, taxes: 0, investments: 0 });
+                setEditData({ otherRevenues: 0 });
             }
         }
         setIsEditing(false); // Sai do modo edição ao mudar filtro
     }, [periodType, selectedYear, selectedPeriodValue, manualRecords]);
+
+    // --- FUNÇÃO PARA SOMAR CUSTOS DE LANÇAMENTOS ---
+    const calculateLaunchesCosts = () => {
+        let targetMonths = [];
+        if (periodType === 'month') targetMonths = [parseInt(selectedPeriodValue)];
+        else if (periodType === 'quarter') {
+            const start = parseInt(selectedPeriodValue) * 3;
+            targetMonths = [start, start + 1, start + 2];
+        } else if (periodType === 'semester') {
+            const start = parseInt(selectedPeriodValue) * 6;
+            targetMonths = Array.from({length: 6}, (_, i) => start + i);
+        } else {
+            targetMonths = Array.from({length: 12}, (_, i) => i);
+        }
+
+        return launches.reduce((total, launch) => {
+            if (!launch.date) return total;
+            const launchDate = new Date(launch.date);
+            const launchYear = launchDate.getFullYear();
+            const launchMonth = launchDate.getMonth();
+            
+            if (launchYear === parseInt(selectedYear) && targetMonths.includes(launchMonth)) {
+                return total + (parseFloat(launch.totalValue) || 0);
+            }
+            return total;
+        }, 0);
+    };
 
     // --- CÁLCULOS AUTOMÁTICOS (Igual ao Financeiro) ---
     const getProductCostAtDate = (productDesc, dateToCheck) => {
@@ -3336,9 +3743,7 @@ const ResultDashboard = () => {
         }
 
         const aggregatedManual = {
-            otherRevenues: 0,
-            op_rent: 0, op_materials: 0, op_fees: 0, op_services: 0,
-            payroll: 0, taxes: 0, investments: 0
+            otherRevenues: 0
         };
 
         // Se estiver no modo mês e editando, usa o estado local (input), senão soma do banco
@@ -3358,17 +3763,15 @@ const ResultDashboard = () => {
 
         // Totais Finais
         const totalRevenue = autoRevenue + aggregatedManual.otherRevenues;
-        const opCostsTotal = aggregatedManual.op_rent + aggregatedManual.op_materials + aggregatedManual.op_fees + aggregatedManual.op_services;
-        const contribMargin = totalRevenue - autoCMV;
-        const netResult = contribMargin - opCostsTotal - aggregatedManual.payroll - aggregatedManual.taxes - aggregatedManual.investments;
+        const launchesCosts = calculateLaunchesCosts();
+        const netResult = totalRevenue - autoCMV - launchesCosts;
 
         return {
             autoRevenue,
             autoCMV,
             ...aggregatedManual,
             totalRevenue,
-            opCostsTotal,
-            contribMargin,
+            launchesCosts,
             netResult
         };
     };
@@ -3496,48 +3899,10 @@ const ResultDashboard = () => {
                     </div>
                 </div>
 
-                {/* --- GRUPO: CUSTOS VARIÁVEIS --- */}
+                {/* --- GRUPO: CUSTOS --- */}
                 <div className="mb-2">
                     {renderRow("(-) Custo Produtos", totals.autoCMV, "text-red-500")}
-                    <div className="bg-stone-50 rounded font-bold">
-                        {renderRow("(=) MARGEM DE CONTRIBUIÇÃO", totals.contribMargin, "text-stone-800")}
-                    </div>
-                </div>
-
-                {/* --- GRUPO: CUSTOS OPERACIONAIS (VERMELHO) --- */}
-                <div className="mb-2">
-                    {/* Cabeçalho Acordeão */}
-                    <div 
-                        className="flex items-center py-3 border-b border-stone-100 cursor-pointer hover:bg-stone-50 transition-colors group"
-                        onClick={() => setIsOpCostsOpen(!isOpCostsOpen)}
-                    >
-                        <div className="flex-1 font-bold text-sm text-red-600 flex items-center gap-2">
-                             <div className={`transition-transform duration-200 ${isOpCostsOpen ? 'rotate-90' : ''}`}>
-                                 <ArrowDownRight size={16}/> 
-                             </div>
-                             (-) Custos Operacionais
-                        </div>
-                        <div className="w-40 text-right pr-4 font-mono font-bold text-red-600">{formatCurrency(totals.opCostsTotal)}</div>
-                        <div className="w-20 text-right text-xs text-stone-400 font-mono">{calcPct(totals.opCostsTotal)}</div>
-                    </div>
-
-                    {/* Itens do Acordeão */}
-                    {isOpCostsOpen && (
-                        <div className="animate-in slide-in-from-top-2 duration-200">
-                            {renderRow("Aluguel", totals.op_rent, "text-red-500", true, "op_rent", true)}
-                            {renderRow("Materiais para Produção", totals.op_materials, "text-red-500", true, "op_materials", true)}
-                            {renderRow("Taxas e Mensalidades", totals.op_fees, "text-red-500", true, "op_fees", true)}
-                            {renderRow("Serviços Terceiros", totals.op_services, "text-red-500", true, "op_services", true)}
-                        </div>
-                    )}
-
-                    {renderRow("(-) Folha de Pagamento", totals.payroll, "text-red-600", true, "payroll")}
-                    {renderRow("(-) Impostos e Tributos", totals.taxes, "text-red-600", true, "taxes")}
-                </div>
-
-                {/* --- GRUPO: INVESTIMENTOS (ROXO) --- */}
-                <div className="mb-4">
-                    {renderRow("(-) Investimentos", totals.investments, "text-purple-600", true, "investments")}
+                    {renderRow("(-) Custos Lançamentos", totals.launchesCosts, "text-red-500")}
                 </div>
 
                 {/* --- RESULTADO LÍQUIDO (VERDE) --- */}
@@ -3769,6 +4134,7 @@ const MainLayout = ({ children }) => {
       case 'clients': return <ClientsManager />;
       case 'products': return <ProductsManager />;
       case 'budgets': return <BudgetManager />;
+      case 'launches': return <LaunchesManager />;
       
       // PROTEÇÃO DE RENDERIZAÇÃO:
       // Se tentar acessar 'financial' ou 'result' sem permissão, mostra o Dashboard comum.
@@ -3846,6 +4212,7 @@ const MainLayout = ({ children }) => {
     <SidebarItem icon={FileText} label="Orçamentos" active={activeTab === 'budgets'} onClick={() => handleNavClick('budgets')} />
     <SidebarItem icon={Users} label="Clientes" active={activeTab === 'clients'} onClick={() => handleNavClick('clients')} />
     <SidebarItem icon={ShoppingBag} label="Produtos" active={activeTab === 'products'} onClick={() => handleNavClick('products')} />
+    <SidebarItem icon={DollarSign} label="Lançamentos" active={activeTab === 'launches'} onClick={() => handleNavClick('launches')} />
     
     {hasRole(['admin', 'manager']) && (
     <div className="pt-4 mt-4 border-t border-stone-800">
